@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Descripcion.css';
 import Calendario from './Calendario/Calendario.jsx';
 import MovieTrailer from './Trailer/Trailer.jsx';
 import { useSelector } from 'react-redux';
+import cinePlusApi from '../../../api/cinePlusApi.js';
 const fecha = new Date();
 
 const defPelicula = {
@@ -30,35 +32,150 @@ const defVideos = {
   }
 
 
-const Descripcion = ({ pelicula = defPelicula, credits = defCredits, videos = defVideos }) => {
+const Descripcion = ({ idPelicula, pelicula = defPelicula, credits = defCredits, videos = defVideos }) => {
+
+    const isFirstRender = useRef(true);
+    const renders = useRef(0);
+    const ordendecrearenviada = useRef(false);
 
     const {status} = useSelector(state => state.auth);
     const director = credits.crew ? credits.crew.find(crew => crew.job === 'Director') : { name: 'No disponible' };
 
-    const [dimension, setDimension] = React.useState("2d");
-    const [doblaje, setDoblaje] = React.useState("Sub");
- 
-    const disp2d = true;
-    const disp3d = true;
-    const dispSub = true;
-    const dispDob = true;
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState({message: ""});
+    const [funcionStatus, setFuncionStatus] = useState(null);
+    const [dimension, setDimension] = React.useState("");
+    const [doblaje, setDoblaje] = React.useState("");
+    const [fechaCalendario , setFechaCalendario] = React.useState({dia: fecha.getDate(), mes: fecha.getMonth() + 1, año: fecha.getFullYear()});
+    const [disp2d, setDisp2d] = useState(false);
+    const [disp3d, setDisp3d] = useState(false);
+    const [dispSub, setDispSub] = useState(false);
+    const [dispDob, setDispDob] = useState(false);
+    const [diasDisponibles, setDiasDisponibles] = useState([]);
+    const [funciones, setFunciones] = useState([]);
 
-    const funciones = [
-        {hora : "10:00", dia : 23, mes : 5, año : 2024, id : 123456},
-        {hora : "11:00", dia : 23, mes : 5, año : 2024, id : 123457},
-        {hora : "12:00", dia : 23, mes : 5, año : 2024, id : 123458},
-        {hora : "13:00", dia : 23, mes : 5, año : 2024, id : 123459},
-        {hora : "14:00", dia : 23, mes : 5, año : 2024, id : 123460},
-        {hora : "15:00", dia : 23, mes : 5, año : 2024, id : 123461},
-        {hora : "16:00", dia : 23, mes : 5, año : 2024, id : 123462},
-        {hora : "17:00", dia : 23, mes : 5, año : 2024, id : 123463},
-        {hora : "18:00", dia : 23, mes : 5, año : 2024, id : 123464},
-        {hora : "19:00", dia : 23, mes : 5, año : 2024, id : 123465},
-        {hora : "20:00", dia : 23, mes : 5, año : 2024, id : 123466},
-        {hora : "21:00", dia : 23, mes : 5, año : 2024, id : 123467},
-        {hora : "22:00", dia : 23, mes : 5, año : 2024, id : 123468},
-    ]
+    const obtenerFunciones = async () => {
+        try {
+            const response = await cinePlusApi.get('/obtenerFunciones/' + idPelicula);
+            console.log(response.data);
+            setLoading(false);
+            return response.data;
+        }
+        catch (error) {
+            console.error(error.message);
+            setError({message: 'Error al obtener las funciones de la película'});
+            return [];
+        }
+    }
+    const crearFunciones = async (cantidad, idPeliculaActual) => {
 
+        const fecha = new Date();
+        const promises = [];
+    
+        for (let j = 0; j < cantidad; j++) {
+            const sillas = [];
+            let precio = pelicula.vote_average * 3000;
+            for (let i = 0; i < 128; i++) {
+                sillas.push({ estado: Math.random() < 0.3, precio: precio });
+            }
+            
+            const funcionData = {
+                idPelicula: idPeliculaActual,
+                hora: Math.floor(Math.random() * 25).toString().concat(Math.random() >= 0.3 ? ":00" : ":30"),
+                dia: Math.floor(Math.random() * 29),
+                mes: Math.floor(Math.random() * (11 - fecha.getMonth()+1)) + fecha.getMonth(),
+                año: fecha.getFullYear(),
+                dimension: Math.random() > 0.5 ? '2d' : '3d',
+                doblaje: Math.random() > 0.5 ? 'Sub' : 'Dob',
+                sillas: sillas
+            };
+            promises.push(cinePlusApi.post('/crearFuncion', funcionData));
+        }
+    
+        try {
+            const responses = await Promise.all(promises);
+            responses.forEach(response => console.log(response.data));
+        } catch (error) {
+            console.error(error);
+        }
+    }
+    
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        obtenerFunciones().then((funciones)=>{setFunciones(funciones)}).catch((error)=>{console.error(error);setError(error)});
+    }, []);
+
+    useEffect(() => {   
+        if (renders.current <= 1) {
+            renders.current++;
+            return; 
+        }
+        console.log(funciones.length);
+        if (funciones.length < 40 && !ordendecrearenviada.current && error.message != 'Error al obtener las funciones de la película') {
+            setFuncionStatus('Buscando funciones...');
+            crearFunciones(40 - funciones.length, idPelicula).then(() => {obtenerFunciones().then((funciones)=>{
+                setFunciones(funciones)
+                setFuncionStatus(null);
+            });});
+
+            ordendecrearenviada.current = true;
+        }
+        actualizarFiltros();
+    }, [funciones]);
+    
+    const actualizarFiltros= () =>{
+        setDisp2d(false);
+        setDisp3d(false);
+        setDispSub(false);      
+        setDispDob(false);
+        setDimension("");
+        setDoblaje("");
+        const nuevalista = [];
+        funciones.forEach((funcion) => {
+            if (funcion.mes === fechaCalendario.mes && funcion.año === fechaCalendario.año){
+                if (funcion.dia === fechaCalendario.dia ) {
+                    if (funcion.dimension === '2d') {
+                        setDisp2d(true);
+                    }
+                    if (funcion.dimension === '3d') {
+                        setDisp3d(true);
+                    }
+                    if (funcion.doblaje === 'Sub') {
+                        setDispSub(true);
+                    }
+                    if (funcion.doblaje === 'Dob') {
+                        setDispDob(true);
+                    }
+                }
+                nuevalista.push(funcion.dia);
+                setDiasDisponibles(nuevalista);
+            }
+            
+        });
+    }
+    const handleFechaCalendario = (dia, mes, año) => {
+        setFechaCalendario({ dia: dia,mes: mes,año: año});
+        setDiasDisponibles([]);
+    }
+    useEffect(() => {
+        actualizarFiltros();
+    }, [fechaCalendario]);
+
+
+
+    
+    const filteredFunciones = funciones.filter(funcion => {
+
+        const dimensionMatch = dimension ? funcion.dimension === dimension : true;
+        const doblajeMatch = doblaje ? funcion.doblaje === doblaje : true;
+        const fechaCalendarioMatch = (funcion.dia === fechaCalendario.dia && funcion.mes === fechaCalendario.mes && funcion.año === fechaCalendario.año);
+        return dimensionMatch && doblajeMatch && fechaCalendarioMatch;  
+    });
+
+    
     return (
         <div className='MayorContainer'>
             <div className='InfoContainer'>
@@ -77,23 +194,27 @@ const Descripcion = ({ pelicula = defPelicula, credits = defCredits, videos = de
                 </div>
                 <div className='CalendarioContainer'>
                     {videos && videos.results.length > 0 && <MovieTrailer videoKey={videos.results[0].key} />}
-                    <Calendario diaInicial={fecha.getDate()} mesInicial={fecha.getMonth() + 1} añoInicial={fecha.getFullYear()} />
-                    
-                    <div className='FiltrosContainer'>
+
+                    {error.message? <p>{error.message}</p>:loading ? <p>Cargando...</p>:funcionStatus? <p>{funcionStatus}</p>
+                    :<>
+                        <Calendario diaInicial={fecha.getDate()} mesInicial={fecha.getMonth() + 1} añoInicial={fecha.getFullYear()} cambioDeFecha={handleFechaCalendario} diasDisponibles={diasDisponibles}/>
+                        <div className='FiltrosContainer'>
                         <div className="button-group">
-                            {disp2d? <div className={`button ${dimension === "2d" ? "seleccionado" : "noseleccionado"}`} onClick={() => setDimension("2d")}>2D</div> :<div className="button nodisponible">2D</div> }
-                            {disp3d? <div className={`button ${dimension === "3d" ? "seleccionado" : "noseleccionado"}`} onClick={() => setDimension("3d")}>3D</div> :<div className="button nodisponible">3D</div> }
+                            {disp2d? <div className={`button ${dimension === "2d" ? "seleccionado" : "noseleccionado"}`} onClick={dimension === "2d" ? () => setDimension("") : () => setDimension("2d")}>2D</div> :<div className="button nodisponible">2D</div> }
+                            {disp3d? <div className={`button ${dimension === "3d" ? "seleccionado" : "noseleccionado"}`} onClick={dimension === "3d" ? () => setDimension("") : () => setDimension("3d")}>3D</div> :<div className="button nodisponible">3D</div> }
                         </div>
                         <div className="button-group">
-                            {dispSub? <div className={`button ${doblaje === "Sub" ? "seleccionado" : "noseleccionado"}`} onClick={() => setDoblaje("Sub")}>SUB</div> :<div className="button nodisponible">Subtitulado</div> }
-                            {dispDob? <div className={`button ${doblaje === "Dob" ? "seleccionado" : "noseleccionado"}`} onClick={() => setDoblaje("Dob")}>DOB</div> :<div className="button nodisponible">Doblado</div> }
+                            {dispSub? <div className={`button ${doblaje === "Sub" ? "seleccionado" : "noseleccionado"}`} onClick={doblaje === "Sub" ? () => setDoblaje("") : () => setDoblaje("Sub")}>SUB</div> :<div className="button nodisponible">SUB</div> }
+                            {dispDob? <div className={`button ${doblaje === "Dob" ? "seleccionado" : "noseleccionado"}`} onClick={doblaje === "Dob" ? () => setDoblaje("") : () => setDoblaje("Dob")}>DOB</div> :<div className="button nodisponible">DOB</div> }
                         </div>
-                    </div>
-                    <div className='FuncionesContainer'>
-                        {funciones.map(funcion => {
-                            return <Link key={funcion.id} className='funcionlink' to={status?`/reserva?id=${funcion.id}`: "/plssignin"}><div className="button funcion">{funcion.hora}</div></Link>
-                        })}
-                    </div>
+                        </div>
+                        <div className='FuncionesContainer'>
+                            {filteredFunciones.map((funcion, key)  => {
+                                return <Link key={key} className='funcionlink' to={status?`/reserva?id=${funcion._id}`: "/plssignin"}><div className="button funcion">{funcion.hora}</div></Link>
+                            })}
+                        </div>
+                    </>
+                    }
                 </div>
             </div>
         </div>
