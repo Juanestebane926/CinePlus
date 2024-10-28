@@ -6,7 +6,7 @@ const {dbConnection} = require('./database/config');
 require('dotenv').config();
 const headers = {
     cors:{
-        origin: "https://cinepluscp.netlify.app/",
+        origin: "*",
         optionsSuccessStatus: 200,
         allowedHeaders: 'Content-Type,Authorization',
         methods: 'GET,POST,PUT,DELETE'
